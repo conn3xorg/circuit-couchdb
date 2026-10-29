@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Conn3x
+        env: &gh
+          GH_TOKEN: ${{ github.token }}
+        run: &install |
+          tag=$(gh release view -R conn3xorg/conn3x --json tagName -q .tagName)
+          file="conn3x_${tag#v}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/conn3xorg/conn3x/releases/download/$tag/$file"
+          curl -sSfLO "https://github.com/conn3xorg/conn3x/releases/download/$tag/checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          mkdir -p bin && tar -xzf "$file" -C bin conn3x
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: conn3x version
+      - run: conn3x fmt -check -recursive
+      - name: Validate
+        run: conn3x init -backend=false && conn3x validate
+      - name: Validate the example
+        working-directory: examples/local
+        run: conn3x init -backend=false && conn3x validate
+
+  e2e:
+    needs: validate
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [rocky10, ubuntu2404, debian13]
+    name: e2e (${{ matrix.distro }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The test host images live in the Conn3x repo.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: conn3xorg/conn3x
+          ref: main
+          path: conn3x
+          persist-credentials: false
+          sparse-checkout: test/images
+      - name: Install Conn3x
+        env: *gh
+        run: *install
+      - name: Start the ${{ matrix.distro }} host
+        working-directory: examples/local
+        env:
+          CONTAINERFILE: ${{ github.workspace }}/conn3x/test/images/${{ matrix.distro }}/Containerfile
+        run: ./up.sh
+      - name: Apply, then plan again with no changes
+        working-directory: examples/local
+        env:
+          TF_VAR_admin_password: ci-only-admin-pass-1
+        run: |
+          conn3x init
+          conn3x apply -auto-approve
+          conn3x plan -detailed-exitcode
+      # The welcome JSON answers the admin, an anonymous request is refused,
+      # the LiveSync settings are live, the password is stored hashed, and
+      # epmd listens on loopback only.
+      - name: Check CouchDB answers the admin and refuses everyone else
+        run: &check |
+          podman exec -i -e PW="$PW" circuit-couchdb sh <<'EOF'
+          set -eu
+          u=http://127.0.0.1:5984
+          a="admin:$PW"
+          curl -sSf -u "$a" $u/ | grep -q '"couchdb":"Welcome"'
+          curl -sSf -u "$a" $u/_session | grep -q '"name":"admin"'
+          [ "$(curl -s -o /dev/null -w '%{http_code}' $u/)" = 401 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -u admin:wrong-password-1 $u/_session)" = 401 ]
+          curl -sSf -u "$a" $u/_all_dbs | grep -q '"_replicator","_users"'
+          curl -sSf -u "$a" $u/_node/_local/_config/chttpd_auth/require_valid_user | grep -qx '"true"'
+          curl -sSf -u "$a" $u/_node/_local/_config/couchdb/max_document_size | grep -qx '"50000000"'
+          curl -sSf -u "$a" -o /dev/null -D - -H 'Origin: app://obsidian.md' $u/ | grep -qi '^access-control-allow-origin: app://obsidian.md'
+          grep -q '^admin = -pbkdf2' /opt/couchdb/etc/local.d/zz-admins.ini
+          if grep -rqF "$PW" /opt/couchdb/etc; then exit 1; fi
+          # epmd (port 4369, 1111 in hex) listens on loopback only.
+          awk '$4 == "0A" && $2 ~ /:1111$/' /proc/net/tcp /proc/net/tcp6 | grep -q .
+          if awk '$4 == "0A" && $2 ~ /:1111$/ && $2 !~ /^(0100007F|0+1000000):/' /proc/net/tcp /proc/net/tcp6 | grep -q .; then exit 1; fi
+          echo ok
+          EOF
+        env:
+          PW: ci-only-admin-pass-1
+      - name: Create a database and a document, restart, and read it back
+        run: |
+          podman exec -i -e PW="$PW" circuit-couchdb sh <<'EOF'
+          set -eu
+          u=http://127.0.0.1:5984
+          a="admin:$PW"
+          curl -sSf -u "$a" -X PUT $u/notes | grep -q '"ok":true'
+          curl -sSf -u "$a" -X PUT $u/notes/hello -H 'Content-Type: application/json' -d '{"text":"kept"}' | grep -q '"ok":true'
+          curl -sSf -u "$a" $u/notes/hello | grep -q '"text":"kept"'
+          systemctl restart couchdb
+          for _ in $(seq 30); do curl -s -o /dev/null $u/ && break; sleep 1; done
+          curl -sSf -u "$a" $u/notes/hello | grep -q '"text":"kept"'
+          echo ok
+          EOF
+        env:
+          PW: ci-only-admin-pass-1
+      # A new password swaps the [admins] section CouchDB rewrote, and the
+      # plan after that is clean too.
+      - name: Change the admin password with a second apply
+        working-directory: examples/local
+        env:
+          TF_VAR_admin_password: ci-only-admin-pass-2
+        run: |
+          conn3x apply -auto-approve
+          conn3x plan -detailed-exitcode
+      - name: Check again with the new password
+        run: *check
+        env:
+          PW: ci-only-admin-pass-2
+      - name: Check the old password is refused and the document is still there
+        run: |
+          podman exec circuit-couchdb sh -euc '
+            [ "$(curl -s -o /dev/null -w "%{http_code}" -u admin:ci-only-admin-pass-1 http://127.0.0.1:5984/_session)" = 401 ]
+            curl -sSf -u admin:ci-only-admin-pass-2 http://127.0.0.1:5984/notes/hello | grep -q "\"text\":\"kept\""'
+      - name: Clean up
+        if: always()
+        working-directory: examples/local
+        run: ./down.sh
