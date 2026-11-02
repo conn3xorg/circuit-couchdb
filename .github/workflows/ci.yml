@@ -132,6 +132,23 @@ jobs:
           podman exec circuit-couchdb sh -euc '
             [ "$(curl -s -o /dev/null -w "%{http_code}" -u admin:ci-only-admin-pass-1 http://127.0.0.1:5984/_session)" = 401 ]
             curl -sSf -u admin:ci-only-admin-pass-2 http://127.0.0.1:5984/notes/hello | grep -q "\"text\":\"kept\""'
+      - name: A link beside the admin file leaves what it points to as it was
+        working-directory: examples/local
+        env:
+          TF_VAR_admin_password: Third-password-3
+        run: |
+          podman exec circuit-couchdb sh -ec '
+            echo keep > /root/keep
+            chmod 600 /root/keep
+            ln -s /root/keep /opt/couchdb/etc/local.d/zz-admins.ini.new
+          '
+          conn3x apply -auto-approve
+          podman exec circuit-couchdb sh -ec '
+            [ "$(stat -c "%U:%G %a" /root/keep)" = "root:root 600" ]
+            grep -qx keep /root/keep
+            [ "$(stat -c "%U:%G %a" /opt/couchdb/etc/local.d/zz-admins.ini)" = "couchdb:couchdb 600" ]
+          '
+          conn3x plan -detailed-exitcode
       - name: Clean up
         if: always()
         working-directory: examples/local

@@ -209,7 +209,14 @@ circuit "couchdb" {
   # one is made here, on the host, and never leaves it.
   step "cookie" {
     command {
-      command = "c=$(LC_ALL=C tr -dc A-Za-z0-9 < /dev/urandom | head -c 48) && sed -i '/^[# ]*-setcookie/d' ${local.etc}/vm.args && printf -- \"-setcookie '%s'\\n\" \"$c\" >> ${local.etc}/vm.args"
+      command = <<-EOT
+        cd /
+        runuser -u couchdb -- sh -es <<'SH'
+        c=$(LC_ALL=C tr -dc A-Za-z0-9 < /dev/urandom | head -c 48)
+        sed -i '/^[# ]*-setcookie/d' ${local.etc}/vm.args
+        printf -- "-setcookie '%s'\n" "$c" >> ${local.etc}/vm.args
+        SH
+      EOT
       unless  = "grep -Eq \"^-setcookie '?[A-Za-z0-9]{16,}\" ${local.etc}/vm.args"
     }
   }
@@ -234,17 +241,22 @@ circuit "couchdb" {
   # config API to the last ini file it reads, zz-admins.ini. Since CouchDB
   # rewrites it, the circuit doesn't manage this file whole: when the
   # password or name changes, it swaps the [admins] section and leaves the
-  # rest. The restart below hashes it.
+  # rest. The restart below hashes it. The package gives the directory to the
+  # couchdb user, so this runs as that user, reading the password over a file
+  # descriptor root opens.
   step "admin" {
     command {
       command = <<-EOT
-        set -e
+        cd /
+        runuser -u couchdb -- sh -es 3< ${local.passwords}/admin-password <<'SH'
         f=${local.admins}
-        touch $f
-        { awk '/^\[/ { skip = ($0 == "[admins]") } !skip' $f; printf '\n[admins]\n%s = %s\n' ${var.admin_username} "$(cat ${local.passwords}/admin-password)"; } > $f.new
-        chown couchdb:couchdb $f.new
-        chmod 600 $f.new
-        mv $f.new $f
+        p=$(cat <&3)
+        umask 077
+        touch "$f"
+        rm -f "$f.new"
+        { awk '/^\[/ { skip = ($0 == "[admins]") } !skip' "$f"; printf '\n[admins]\n%s = %s\n' ${var.admin_username} "$p"; } > "$f.new"
+        mv -f "$f.new" "$f"
+        SH
       EOT
       triggers = {
         password = conn3x_file.couchdb__admin_password[each.key].revision
