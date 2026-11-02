@@ -99,8 +99,12 @@ locals {
   check_host = lookup({ "0.0.0.0" = "127.0.0.1", "::" = "[::1]" }, var.bind_address, strcontains(var.bind_address, ":") ? "[${var.bind_address}]" : var.bind_address)
   url        = "http://${local.check_host}:${var.port}"
 
-  # The password reaches curl on stdin, so it never shows in ps.
-  login = "printf 'user = \"%s:%s\"\\n' ${var.admin_username} \"$(cat ${local.passwords}/admin-password)\" | curl -sf -K- ${local.url}/_session | grep -q '\"name\":\"${var.admin_username}\"'"
+  # The password reaches curl on stdin, so it never shows in ps, and it's only
+  # sent to a port held by root or the couchdb user.
+  held  = <<-EOT
+    held() { p=$(printf ':%04X$' ${var.port}); u=$(id -u couchdb); cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk -v p="$p" -v u="$u" '$4 == "0A" && $2 ~ p { n++; if ($8 != u && $8 != 0) b = 1 } END { exit !(n && !b) }'; }
+  EOT
+  login = "${local.held} held && printf 'user = \"%s:%s\"\\n' ${var.admin_username} \"$(cat ${local.passwords}/admin-password)\" | curl -sf -K- ${local.url}/_session | grep -q '\"name\":\"${var.admin_username}\"'"
 }
 
 # Apache's apt repository. The debconf answer keeps the package from
