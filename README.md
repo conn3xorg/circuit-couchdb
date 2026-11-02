@@ -1,5 +1,7 @@
 # circuit-couchdb
 
+[![Conn3x grade](https://conn3x.org/circuits/couchdb/grade.svg)](https://conn3x.org/circuits/couchdb/grade)
+
 A Conn3x circuit that installs Apache CouchDB as a single node, from Apache's own apt and yum repositories, with an admin, a fresh Erlang cookie and the system databases in place, so the first thing you do with it is use it.
 
 The usual reason to want one at home is the [Self-hosted LiveSync](https://github.com/vrtmrz/obsidian-livesync) plugin for Obsidian, which syncs your vault through a CouchDB you run. It's a community plugin, written by vorotamoroz, not Obsidian's own Obsidian Sync. Set `obsidian_livesync = true` and the circuit applies the CouchDB settings the plugin's setup asks for; put [circuit-caddy](https://github.com/conn3xorg/circuit-caddy) in front for the HTTPS the mobile apps need.
