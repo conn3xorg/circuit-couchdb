@@ -72,6 +72,9 @@ jobs:
           conn3x init
           conn3x apply -auto-approve
           conn3x plan -detailed-exitcode
+          # The example's secrets reach the host write-only, so none of them
+          # may show up in state.
+          if grep -qF -e ci-only-admin-pass-1 terraform.tfstate; then echo "A secret is in state." >&2; exit 1; fi
       # The welcome JSON answers the admin, an anonymous request is refused,
       # the LiveSync settings are live, the password is stored hashed, and
       # epmd listens on loopback only.
