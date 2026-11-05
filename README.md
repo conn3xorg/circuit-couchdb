@@ -96,7 +96,7 @@ module "couchdb" {
 }
 
 module "caddy" {
-  source = "github.com/conn3xorg/circuit-caddy?ref=v0.2.1"
+  source = "github.com/conn3xorg/circuit-caddy?ref=v0.3.0"
 
   hosts                = { notes = "203.0.113.20" }
   ssh_private_key_file = "~/.ssh/id_ed25519"
