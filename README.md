@@ -18,7 +18,7 @@ variable "couchdb_admin_password" {
 }
 
 module "couchdb" {
-  source = "github.com/conn3xorg/circuit-couchdb?ref=v0.1.3"
+  source = "github.com/conn3xorg/circuit-couchdb?ref=v0.1.4"
 
   hosts                = { notes = "192.168.1.60" }
   ssh_private_key_file = "~/.ssh/id_ed25519"
@@ -86,7 +86,7 @@ Obsidian on iOS and Android only talks to CouchDB over HTTPS with a certificate 
 
 ```hcl
 module "couchdb" {
-  source = "github.com/conn3xorg/circuit-couchdb?ref=v0.1.3"
+  source = "github.com/conn3xorg/circuit-couchdb?ref=v0.1.4"
 
   hosts                = { notes = "203.0.113.20" }
   ssh_private_key_file = "~/.ssh/id_ed25519"
