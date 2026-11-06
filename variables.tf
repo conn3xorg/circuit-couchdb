@@ -41,6 +41,7 @@ variable "ssh_become" {
 variable "couchdb_version" {
   type        = string
   default     = "3.5.3"
+  nullable    = false
   description = "CouchDB release to install, such as \"3.5.3\". Raising it upgrades CouchDB in place."
 
   validation {

@@ -10,6 +10,13 @@ variable "admin_password" {
   sensitive = true
 }
 
+# CI sets this to install an older CouchDB first, then upgrades to the
+# circuit's own pin by applying again without it.
+variable "couchdb_version" {
+  type    = string
+  default = null
+}
+
 module "couchdb" {
   source = "../.."
 
@@ -20,6 +27,7 @@ module "couchdb" {
 
   admin_password    = var.admin_password
   obsidian_livesync = true
+  couchdb_version   = var.couchdb_version
 }
 
 output "url" {
