@@ -185,7 +185,7 @@ Enterprise Linux 9 is left out too: its packages need EPEL and a separate Spider
 
 ## Requirements
 
-Requires Conn3x v0.6.9 or later and systemd on each host, with outbound HTTPS to apache.jfrog.io. The droplets it was tested on had 1 GB of memory. amd64 and arm64.
+Requires Conn3x v0.28.0 or later and systemd on each host, with outbound HTTPS to apache.jfrog.io. The droplets it was tested on had 1 GB of memory. amd64 and arm64.
 
 ## Tested on
 

@@ -272,8 +272,8 @@ circuit "couchdb" {
   # CouchDB reads its ini files only at start. It runs here rather than in
   # a handler so the steps below find it running with the new settings.
   step "restart" {
-    command {
-      command = "systemctl daemon-reload && systemctl restart couchdb"
+    service_action {
+      name = "couchdb"
       triggers = {
         package = conn3x_package.couchdb__package[each.key].revision
         config  = conn3x_file.couchdb__config[each.key].revision
@@ -299,7 +299,7 @@ circuit "couchdb" {
   step "ready" {
     command {
       command  = "for _ in $(seq 60); do curl -s -o /dev/null ${local.url}/ && grep -q '^${var.admin_username} = -pbkdf2' ${local.admins} && break; sleep 2; done; ${local.login} || { echo 'CouchDB did not answer on ${local.url}, or did not accept the admin password. See journalctl -u couchdb.' >&2; exit 1; }"
-      triggers = { restart = conn3x_command.couchdb__restart[each.key].revision }
+      triggers = { restart = conn3x_service_action.couchdb__restart[each.key].revision }
     }
   }
 }
